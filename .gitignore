@@ -4,5 +4,6 @@ lgb_imps/*
 logs/*
 perm_imps/*
 subs/*
+covariate_shift_output/*
 __*
 .idea*

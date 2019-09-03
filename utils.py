@@ -29,7 +29,7 @@ def merge_base_df(name):
 
 def load_merge_data(name, features=None):
     p = './data/'
-    print(f'Reading {name} csv...')
+    print(f'Reading {name} csv ...')
     d = pd.read_hdf(f'{p}/{name}.h5')
 
     if features is not None: # Merge additional features
