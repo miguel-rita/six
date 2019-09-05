@@ -8,7 +8,7 @@ from sklearn.metrics import roc_auc_score
 from lightgbm import LGBMClassifier, plot_importance
 from utils import time_split, load_merge_data, gen_sub, run_permutation_importance, save_lgb_importances
 
-def train_predict_lgbm(train, test, sample_weight, cols_to_drop, NFOLDS, LGB_PARAMS, PARAMS, whitelist):
+def train_predict_lgbm(train, test, cols_to_drop, NFOLDS, LGB_PARAMS, PARAMS, whitelist):
     y = train.isFraud.values
     X = train.drop(cols_to_drop, axis=1)
     X_test = test.drop([c for c in cols_to_drop if c != 'isFraud'], axis=1)
@@ -27,7 +27,6 @@ def train_predict_lgbm(train, test, sample_weight, cols_to_drop, NFOLDS, LGB_PAR
         bst.fit(X_train, y_train,
                 eval_set=[(X_train, y_train), (X_val, y_val)],
                 eval_metric=['auc'],
-                sample_weight=sample_weight[train_ixs],
                 verbose=PARAMS['verbose'], early_stopping_rounds=PARAMS['early_stopping_rounds']
                 )
 
@@ -64,10 +63,10 @@ def stack_one():
         'metric': 'auc',
         'verbosity': -1,
         'boosting_type': 'gbdt',
-        'learning_rate': 0.1,
+        'learning_rate': 0.05,
         'num_leaves': 32,
         'min_child_samples': 500,
-        'n_estimators': 1000,
+        'n_estimators': 2000,
         'n_jobs': -1,
     }
     PARAMS = {
@@ -82,12 +81,8 @@ def stack_one():
     for k, v in PARAMS.items(): logging.info(f'     {k}:{v}')
 
     BFEATS = list(pd.read_hdf('perm_imps/pimps_2019-09-01 20:08:59.h5').index)[:70]
-    w = np.load('covariate_shift_outputs/covariate_weights_2019-09-02 20:41:04.npy')
-    sample_weight = np.ones(w.shape[0])
-    sample_weight[w>0.5] = 3
-    sample_weight[w<0.2] = 0.333
 
-    y_pred, fold_aucs, bsts, bsts_folds, feat_names, X = train_predict_lgbm(train, test, sample_weight,
+    y_pred, fold_aucs, bsts, bsts_folds, feat_names, X = train_predict_lgbm(train, test,
         cols_to_drop, NFOLDS=5, LGB_PARAMS=LGB_PARAMS, PARAMS=PARAMS,
         whitelist=BFEATS,#+wlist[0],
     )

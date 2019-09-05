@@ -20,24 +20,63 @@ def gen_lookups(df, gb_col):
         ssdict[col] = i
     return ssx, ssdict
 
-def build_hashes_df(df):
-    # how many unique c1-c6, email, addr combinations
-    c16 = df[['TransactionID']+[f'card{i:d}' for i in np.arange(1,7)]+['P_emaildomain', 'addr1', 'addr2']]
-
-    # build different possible hashes to uniquely identify account/cardholder
-    h1 = [f'card{i:d}' for i in np.arange(1,7)]
-    h2 = h1 + ['P_emaildomain']
-    h3 = h2 + ['addr1', 'addr2']
-    h4 = ['card1']
-
+def build_hashes_df(df, col_combs):
     df_hashes = pd.DataFrame()
-    df_hashes['TransactionID'] = c16['TransactionID'].copy()
-    # for h, hn in zip([h1, h2, h3], ['card_hash', 'card_mail_hash', 'card_mail_addr_hash']):
-    for h, hn in zip([h4], ['C1_hash']):
-        hs = [c16[c].astype(str) for c in h]
-        df_hashes[hn] = functools.reduce(lambda a,b : a+b, hs)
-    return df_hashes
+    df_hashes['TransactionID'] = df['TransactionID'].copy()
+    names = [''.join(c) for c in col_combs]
+    for h, name in zip(col_combs, names) :
+        hs = [df[c].astype(str) for c in h]
+        df_hashes[name] = functools.reduce(lambda a,b : a+b, hs)
+    return df_hashes.astype(str)
+def run_hash_target_encoding(path, featset_name):
 
+    train = load_merge_data('train')#.sample(n=2000)
+    test = load_merge_data('test')#.sample(n=2000)
+
+    cs = [
+        ['card1'],
+        ['card1', 'addr1'],
+        ['card1', 'P_emaildomain'],
+        ['card1', 'R_emaildomain'],
+        [f'card{i:d}' for i in range(1,7)],
+        [f'card{i:d}' for i in range(1,7)] + ['addr1','addr2'],
+    ]
+    cs_ = [c for c in cs if len(c)>1]
+    names = [''.join(c) for c in cs]
+    train_hashes = build_hashes_df(train, cs_)
+    test_hashes = build_hashes_df(test, cs_)
+
+    train = train.merge(train_hashes, on='TransactionID', how='left').loc[:, ['TransactionID', 'isFraud']+names].astype({c:str for c in names})
+    test = test.merge(test_hashes, on='TransactionID', how='left').loc[:, ['TransactionID', 'isFraud']+names].astype({c:str for c in names})
+    folds = time_split(train, nfolds=5)
+
+    for h in tqdm.tqdm(names):
+        # build placeholder cols
+        for p in ['ct_', 'freq_']:
+            train[p+h] = np.zeros(train.shape[0])
+            test[p+h] = np.zeros(test.shape[0])
+        # fill per fold to avoid leakage
+        for ts, vs in folds:
+            s = train.iloc[ts,:].groupby(h)['isFraud'].agg(['sum', 'count']).reset_index()
+            s['freq'] = 0
+            s['freq'].loc[s['sum']>0] = s.loc[s['sum']>0]['sum']/s.loc[s['sum']>0]['count']
+            ct_encode = dict(zip(s[h], s['sum']))
+            freq_encode = dict(zip(s[h], s['freq']))
+
+            ce = lambda v : ct_encode[str(v)] if str(v) in ct_encode.keys() else np.nan
+            fe = lambda v : freq_encode[str(v)] if str(v) in freq_encode.keys() else np.nan
+            
+            raw = train[h].iloc[vs]
+            train['ct_'+h].values[vs] = raw.apply(ce).values
+            train['freq_'+h].values[vs] = raw.apply(fe).values
+            raw = test[h].iloc[vs]
+            test['ct_'+h].values[vs] = raw.apply(ce).values
+            test['freq_'+h].values[vs] = raw.apply(fe).values
+
+    dp = lambda df : df[['TransactionID'] + [c for c in df.columns if ('ct_' in c or 'freq_' in c)]]
+    train, test = dp(train), dp(test)
+    train.to_hdf(f'{path}/{featset_name}_train.h5', mode='w', key='hash_encoding')
+    test.to_hdf(f'{path}/{featset_name}_test.h5', mode='w', key='hash_encoding')
 
 @jit(nopython=True)
 def amt_window_feats(arr, ws):
@@ -103,4 +142,5 @@ def run_window_features():
     for d in ['train', 'test']: window_features(df_name=d, path='./features', featset_name=f'hwindow_feats_v2_{d}')
 
 if __name__ == '__main__':
-    run_window_features()
+    # run_window_features()
+    run_hash_target_encoding(path='./features', featset_name=f'hash_encoding')

@@ -38,7 +38,7 @@ def load_merge_data(name, features=None):
         for f in tqdm.tqdm(fs, total=len(fs)): d = d.merge(f, on='TransactionID', how='left')
 
     print(f'... Done loading {name} df')
-    return d
+    return d.astype({'TransactionID':str})
 
 def time_split(X, nfolds):
     kf = KFold(n_splits=nfolds, shuffle=False)
